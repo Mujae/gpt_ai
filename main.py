@@ -1,13 +1,28 @@
 # -*- coding: utf-8 -*-
+from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
-from bs4 import BeautifulSoup
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
 import time
+import os
+import re
 import openai
-from flask import Flask, request, jsonify
-app = Flask(__name__)
+from fastapi import FastAPI, HTTPException
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
+from pydantic import BaseModel
+
+app= FastAPI()
+
+class StoreName(BaseModel):
+    name: str
+
+class ResponseModel(BaseModel):
+    summary: str
+
+
+
 
 def extract_review(store_name):
     options = webdriver.ChromeOptions()
@@ -53,11 +68,13 @@ def extract_review(store_name):
     soup = BeautifulSoup(html, 'html.parser')
     reviews = soup.find_all('span', class_='zPfVt')
     driver.quit()
+    reviews = soup.find_all('span', class_='zPfVt')
     reviews = [review.text for review in reviews]
     reviews_text = ''.join(reviews)
     reviews_text = reviews_text.replace('.','')
     reviews_text = reviews_text.replace('\n','')
-    return ' '.join(reviews_text).replace('.','').replace('\n','')
+
+    return ' '.join(reviews).replace('.','').replace('\n','')
 
 def summarize_reviews(reviews, api_key, model_id):
     openai.api_key = api_key
@@ -70,19 +87,14 @@ def summarize_reviews(reviews, api_key, model_id):
     )
     return response.choices[-1].message.content
 
-@app.route('/summarize_reviews/', methods=['POST'])
-def create_summary():
-    data = request.json
-    store_name = data['name']
-    api_key = "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"
-    model_id = "ft:gpt-3.5-turbo-1106:personal::8gIHJE7W"
+@app.post("/summarize_reviews/", response_model=ResponseModel)
+def create_summary(store: StoreName):
+    
+    api_key = "api"
+    model_id = "ft:gpt-3.5-turbo-1106:personal"
     try:
-        reviews_text = extract_review(store_name)
+        reviews_text = extract_review(store.name)
         summary_text = summarize_reviews(reviews_text, api_key, model_id)
-        print(summary_text)
-        return jsonify({'summary': summary_text})
+        return ResponseModel(summary=summary_text)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(debug=True)
+        raise HTTPException(status_code=500, detail=str(e))
